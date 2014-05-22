@@ -169,6 +169,49 @@ class TestMultipartEncoder(unittest.TestCase):
         #    print "Test failed with file_size=",file_size,"and read_size=",read_size
         assert raw_bytes_count == content_length
 
+    def test_streams_its_data_with_correct_length(self):
+        for i in range(0, 100):  # or more than 100 to increase fuzzing strength
+            file_size = random.randint(0, 12345)
+            if random.random() < 0.1:
+                file_size = 0  # sometimes we check with an empty file
+            self.check_read_file_with_chunks(file_size, read_size=1)
+            self.check_read_file_with_chunks(file_size, read_size=2)
+            self.check_read_file_with_chunks(file_size, read_size=3)
+            read_size = random.randint(0, 2*file_size)
+            self.check_read_file_with_chunks(file_size, read_size=1)
+            for read_size in range(file_size - 10, file_size + 200):
+                if read_size < -1 or read_size == 0:
+                    continue
+                self.check_read_file_with_chunks(file_size, read_size)
+
+    def check_read_file_with_chunks(self, file_size, read_size):
+        #print "===== Testing with file_size=",file_size,"read_size=",read_size
+        boundary="deterministic-test-boundary"
+        a_file = LargeFileMock(file_size)
+        parts = {'some_field': 'this is the value...',
+                 'some_file': a_file.read(),
+        }
+        expected_bytes = encode_multipart_formdata(parts, boundary)[0]
+        content_length = len(expected_bytes)
+
+        # Now read from our encoder :
+        a_file = LargeFileMock(file_size)
+        parts = {'some_field': 'this is the value...',
+                 'some_file': a_file,
+        }
+        encoder = MultipartEncoder(parts, boundary=boundary)
+        raw_bytes_count = 0
+        while True:
+            data = encoder.read(read_size)
+            if not data:
+                break
+            #print "read",len(data),"bytes : ",repr(data)
+            assert data == expected_bytes[raw_bytes_count:raw_bytes_count+len(data)]
+            raw_bytes_count += len(data)
+        #if raw_bytes_count != content_length:
+        #    print "Test failed with file_size=",file_size,"and read_size=",read_size
+        assert raw_bytes_count == content_length
+
     def test_length_is_correct(self):
         encoded = encode_multipart_formdata(self.parts, self.boundary)[0]
         assert len(encoded) == len(self.instance)
